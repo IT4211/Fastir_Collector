@@ -20,6 +20,9 @@ class Windows10UserReg(_Reg):
     def csv_networks_list(self):
         super(Windows10UserReg, self)._csv_networks_list(r'Software\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles')
 
+    def csv_shim_cache(self):   #Shim cache function
+        super(Windows10UserReg, self)._csv_shim_cache(r'SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache')
+
     def json_open_save_mru(self):
         super(Windows10UserReg, self)._json_open_save_mru(
             r"Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSaveMRU")
@@ -29,3 +32,6 @@ class Windows10UserReg(_Reg):
 
     def json_networks_list(self):
         super(Windows10UserReg,self)._json_networks_list(r'Software\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles')
+
+    def json_shim_cache(self):  # Shim cache function
+        super(Windows10UserReg, self)._json_shim_cache(r'SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache')

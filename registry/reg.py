@@ -6,6 +6,7 @@ from win32com.shell import shell
 import struct
 import construct
 import StringIO
+import cStringIO as sio
 import os
 from csv import reader
 from utils.vss import _VSS
@@ -24,6 +25,9 @@ VALUE_PATH = 5
 KEY_PATH = 1
 KEY_LAST_WRITE_TIME = 2
 
+DATE_MDY = "%m/%d/%y %H:%M:%S"
+DATE_ISO = "%Y-%m-%d %H:%M:%S"
+g_timeformat = DATE_ISO
 
 def get_usb_key_info(key_name):
     """
@@ -266,6 +270,16 @@ def construct_list_from_key(hive_list, key, is_recursive=True):
         if sub_key and is_recursive:
             construct_list_from_key(hive_list, sub_key, is_recursive)
 
+
+def convert_filetime(dwLowDateTime, dwHighDateTime):
+    try:
+        date = datetime.datetime(1601, 1, 1, 0, 0, 0)
+        temp_time = dwHighDateTime
+        temp_time <<= 32
+        temp_time |= dwLowDateTime
+        return date + datetime.timedelta(microseconds=temp_time / 10)
+    except OverflowError, err:
+        return None
 
 class _Reg(object):
     def __init__(self, params):
@@ -965,3 +979,70 @@ class _Reg(object):
                 if to_json_list:
                     json_writer = get_json_writer(output)
                     write_list_to_json(to_json_list, json_writer)
+
+    # get shim cache and return csv
+    def __get_shim_cache(self, is_win7_or_further):
+        self.logger.info("Extracting shim cache")
+
+        paths = r"System\CurrentControlSet\Control\Session Manager"
+        to_csv_list = [("Last Modified", "Last Update", "Path", "File Size", "Exec Flag")]
+
+        #localmachin is RegistryKey object
+        #OpenKey(HKLM, \System\CurrentControlSet\Control\Session Manager)
+        localmachine = registry_obj.RegistryKey(registry_obj.HKEY_LOCAL_MACHINE, paths) # OpenKey(hive, path)
+
+        AppCompactCache_key = localmachine.get_sub_key_by_name("AppCompatCache")
+        shim_cache = AppCompactCache_key.get_value_by_name("AppCompatCache")
+
+        shim_cache_data = shim_cache.get_data() #get app_compat_cache data
+
+        # data parsing 
+        offset = 0
+        entry_meta_len = 12
+        entry_list = []
+
+        cache_data = shim_cache_data[48:]   # WIN10_STATS_SIZE = 0x30
+        data = sio.StringIO(cache_data)
+        while data.tell() < len(cache_data):
+            header = data.read(entry_meta_len)
+            magic, crc32_hash, entry_len = struct.unpack('<4sLL', header)
+
+            if magic != '10ts': # win 10 shimcache magic number 
+                raise Exception("Invaild version magic tag found!")
+
+            entry_data = sio.StringIO(data.read(entry_len)) 
+
+            path_len = struct.unpack('<H', entry_data.read(2))[0]
+            if path_len == 0:
+                path = "N/A"
+            else:
+                path = entry_data.read(path_len).decode('utf-16le', 'replace').encode('utf-8')
+
+            low_datetime, high_datetime = struct.unpack('<LL', entry_data.read(8))
+
+            last_mod_date = convert_filetime(low_datetime, high_datetime)
+            try:
+                last_mod_date = last_mod_date.strftime(g_timeformat)
+            except ValueError:
+                last_mod_date = 'N/A'
+
+            if last_mod_date == 'N/A'
+                continue
+
+            row = [last_mod_date, 'N/A', path, 'N/A', 'N/A']
+            entry_list.append(row)
+
+        return entry_list
+
+    # call __get_shim_cache()
+    def csv_shim_cache(self, is_win7_or_further):
+        with open(self.output_dir + "\\" + self.computer_name + "_shim_cache" + self.rand_ext, "wb") as output:
+            csv_writer = get_csv_writer(output)
+            write_list_to_csv(self.__get_shim_cache(is_win7_or_further), csv_writer)
+
+    # json
+    def json_shim_cache(self, is_win7_or_further):
+        with open(os.path.join(self.output_dir, '%s_shim_cache.json' % self.computer_name), 'wb') as output:
+            json_writer = get_json_writer(output)
+            write_list_to_json(self.__get_shim_cache(is_win7_or_further), json_writer)
+
